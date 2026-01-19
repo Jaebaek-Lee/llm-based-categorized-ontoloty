@@ -19,7 +19,7 @@ if os.path.exists(ENV_PATH):
                 os.environ[key.strip()] = value.strip()
 
 API_KEY = os.environ.get("GOOGLE_API_KEY")
-MODEL_NAME = "gemini-2.0-flash" # Updated to available 2.0 model
+MODEL_NAME = "gemini-3-pro-preview" # Updated to available 3-pro-preview model
 
 if API_KEY:
     genai.configure(api_key=API_KEY)
@@ -74,7 +74,6 @@ def extract_schema_info(graph):
 
     # Sample Relations (avoiding type definitions to see actual data links)
     relations = []
-    # Simple query to get some interesting connections
     q = """
     SELECT ?s ?p ?o
     WHERE {
@@ -93,6 +92,28 @@ def extract_schema_info(graph):
     except Exception as e:
         print(f"Error sampling relations: {e}")
 
+    # [NEW] Extract unique values for Categorical Properties
+    categorical_info = ""
+    cat_properties = [":mealType", ":cuisineType"] # Add more if needed like :cuisineType
+    
+    for prop in cat_properties:
+        try:
+            q_cat = f"""
+            SELECT DISTINCT ?val
+            WHERE {{
+                ?s {prop} ?val .
+            }}
+            LIMIT 10
+            """
+            values = []
+            for row in graph.query(q_cat):
+                 values.append(str(row.val))
+            
+            if values:
+                categorical_info += f"\nUnique Values for {prop}: {json.dumps(values, ensure_ascii=False)}"
+        except Exception as e:
+            print(f"Error extracting values for {prop}: {e}")
+
     schema_info = f"""
 ## Classes
 {', '.join(sorted(classes)) if classes else "No classes found"}
@@ -102,6 +123,9 @@ def extract_schema_info(graph):
 
 ## Sample Relations
 {chr(10).join(relations) if relations else "No relations found"}
+
+## Categorical Values
+{categorical_info}
 """
     return schema_info
 
@@ -117,7 +141,7 @@ def generate_sparql(question, schema_info):
     prompt = f"""
     You are an expert in SPARQL and Ontologies.
     Convert the following natural language question into a SPARQL 1.1 query.
-    Use the provided Schema Information to understand the classes and properties.
+    Use the provided Schema Information to understand the classes, properties, and valid values.
     
     # Schema Information
     {schema_info}
@@ -136,11 +160,38 @@ def generate_sparql(question, schema_info):
     - Do not include markdown code blocks (```sparql ... ```).
     - Use only the classes and properties defined in the schema if possible.
     - For names (venues, menus), ALWAYS query the `:name` or `:menuName` property and filter it. Do NOT filter the Subject URI.
-    - Example: `SELECT ?v WHERE {{ ?v a :Venue ; :name ?n . FILTER(CONTAINS(?n, "301")) }}`
-    - For location/building queries, use the `:building` property.
-    - Example: "301동 식당" -> `?venue :building ?b . FILTER(CONTAINS(?b, "301"))`
+    - Check "Categorical Values" in schema to map terms like "Morning" -> "breakfast".
+    - When checking categorical values (e.g. mealType), use `FILTER(STR(?var) = "value")` to avoid literal type mismatches.
     - CRITICAL: The path from Venue to Menu is: `?venue :offers ?service . ?service :hasMenu ?menuItem`. Use this path.
     - If the user asks about a general concept (e.g., "Engineering Zone"), rely on 'partOf' relationships or specific building names if you can infer them.
+
+    # User Question Examples (Few-Shot)
+    
+    User: "301동 식당 알려줘" (Venue Name Search)
+    SPARQL:
+    SELECT ?v WHERE {{
+      ?v a :Venue ;
+         :building ?b .
+      FILTER(CONTAINS(?b, "301"))
+    }}
+
+    User: "아침 먹을 수 있는 곳" (Categorical Filter)
+    SPARQL:
+    SELECT ?vName WHERE {{
+      ?s a :MealService ;
+         :mealType "breakfast" ;  # Inferred from schema values
+         :providedAt ?Venue .
+      ?Venue :name ?vName .
+    }}
+    
+    User: "5000원 이하 메뉴" (Numeric Filter)
+    SPARQL:
+    SELECT ?mName ?price WHERE {{
+       ?m a :MenuItem ;
+          :price ?price ;
+          :menuName ?mName .
+       FILTER(?price <= 5000)
+    }}
     """
     
     try:
