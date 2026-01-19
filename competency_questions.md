@@ -1,364 +1,191 @@
-# SNU Gwanak Campus Dining Ontology — Question Set (for Vibe Coding)
+# SNU Dining Ontology - Competency Questions
 
-이 문서는 현재 보유한 데이터(메뉴 JSON + venue 메타데이터)만으로 답할 수 있는 “사람 중심 자연어 질문” 12개와, 각 질문이 기대하는 온톨로지 연결 구조(그래프 패턴)를 정리한 참고자료입니다.
-
-* 목표: “온톨로지가 어떤 질문을 풀어주는가?”를 교육용으로 보여주기
-* 원칙: 질문이 데이터의 특정 메뉴명/특정 문자열에 과도하게 종속되지 않도록 구성
-* 구현 관점: 일부 질문은 원시 데이터에서 추출/정규화/태깅(derived data)이 필요하지만, 이는 외부 추가 데이터 없이 가능한 범위(룰 기반)로 제한
+이 문서는 온톨로지 설계의 기준이 되는 **핵심 질문 6가지**를 정의한 문서입니다.
+단순한 데이터 조회를 넘어, 데이터 간의 **관계(Relationship)**와 **속성(Property)**이 어떻게 연결되어야 하는지를 보여줍니다. 개발자는 이 질문들이 논리적으로 해결 가능하도록 온톨로지를 구축해야 합니다.
 
 ---
 
-0. 데이터 스코프 & 기본 개념
+### 1. 기본 연결 (Availability Check)
+**"지금 아침 식사 되는 식당 어디야?"**
+
+가장 기초적인 질문으로, 식당(Venue)과 식사 서비스(MealService) 간의 존재 여부와 시간 관계를 확인합니다.
+
+*   **Logical Path:**
+    `User(Time)` ➜ `check(CurrentTime ∈ Service.timeWindow)` ➜ `MealService` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?service a :MealService ;
+             :mealType "Breakfast" ;
+             :providedAt ?venue .
+    ```
 
 ---
 
-입력 데이터(요약)
+### 2. 속성 필터링 (Attribute Filtering)
+**"5,000원 이하로 점심 먹을 수 있는 곳 있어?"**
 
-* MealService 단위: date, restaurant(venue_id), breakfast/lunch/dinner 각각의 description/items, time
-* Venue 메타: venue_id, display_name, place_name, address, lat/lng, phone, building, floor(optional)
-* (옵션) campus_center 좌표
+메뉴(MenuItem)의 구체적인 속성(가격)을 기준으로 필터링하고, 이를 상위 개념인 식당과 연결합니다.
 
-추천 온톨로지 코어(최소)
-
-* Venue
-
-  * id, display_name, geo(lat,lng), building, floor, phone
-* MealService
-
-  * date, mealType(Breakfast/Lunch/Dinner), timeWindow, crowdWindow(optional), serviceStyle(optional), venue
-* MenuItem (선택: 구조화가 필요할 때)
-
-  * name, price, tags(takeout/spicy/noodles/etc), mealService
+*   **Logical Path:**
+    `MenuItem(price <= 5000)` ➜ `partOfService` ➜ `MealService(Lunch)` ➜ `providedAt` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?menu :price ?p ;
+          :partOfService ?service .
+    FILTER (?p <= 5000)
+    ?service :providedAt ?venue .
+    ```
 
 ---
 
-1. 오늘 점심 가능한 식당(또는 매장) 목록 보여줘
+### 3. 의미 기반 분류 (Semantic Categorization)
+**"오늘 면 요리(Noodle) 먹고 싶은데 어디로 가면 돼?"**
+
+단순한 메뉴 이름 매칭("국수")이 아니라, '면 요리'라는 **개념(Concept)**으로 데이터를 묶을 수 있어야 합니다.
+
+*   **Logical Path:**
+    `Concept(Noodle)` ➜ `isTypeOf` ➜ `MenuItem` ➜ `partOfService` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?menu :carbType "Noodle" .   # 혹은 :category "Noodle"
+    ?menu :partOfService ?service .
+    ?service :providedAt ?venue .
+    ```
 
 ---
 
-난이도: 쉬움
-의미: 특정 날짜+끼니에 대해 제공되는 meal service 존재 여부로 필터링
+### 4. 공간과 콘텐츠의 결합 (Spatial + Content Relation)
+**"301동(공대) 근처에 일식 파는 식당 찾아줘."**
 
-Expected graph / pseudo
-INPUT: date=today, mealType=Lunch
-FIND Venue v
-WHERE exists MealService ms:
-ms.venue = v
-ms.date = date
-ms.mealType = mealType
-AND (ms.timeWindow != null OR ms.description/items not empty)
-RETURN v.display_name, ms.timeWindow
+단순히 이름에 '301'이 들어간 곳이 아니라, **지리적 거리(Geospatial Distance)**가 가까운 곳을 찾아야 합니다.
+'근처'라는 개념은 기준 지점(301동)의 좌표와 후보 식당들의 좌표 간 유클리드 거리(혹은 Haversine) 계산을 필요로 합니다.
 
----
+*   **Logical Path:**
+    1. `Location(301동)` ➜ `getCoordinate(lat, lng)`
+    2. `Venue(All)` ➜ `calcDistance(Venue.geo, 301.geo)` ➜ `Filter(dist < Threshold)`
+    3. `Venue` ➜ `offers` ➜ `MealService` ➜ `hasMenu` ➜ `MenuItem(Japanese)`
+*   **Graph Pattern (Conceptual):**
+    ```sparql
+    # 1. 기준 장소 (301동) 좌표 획득
+    ?target :name "301동 (제1공학관)" ;
+            :geoLat ?tLat ;
+            :geoLng ?tLng .
 
-2. 지금(현재 시간) 열려있는 곳 어디야?
+    # 2. 후보 식당 탐색 및 거리 계산
+    ?venue a :Venue ;
+           :geoLat ?vLat ;
+           :geoLng ?vLng .
+    
+    # 3. 메뉴 조건 필터링
+    ?venue :offers ?service .
+    ?service :hasMenu ?menu .
+    ?menu :cuisineType "Japanese" .
 
----
-
-난이도: 쉬움(시간 파싱 필요)
-의미: 자연어 “지금” → now ∈ timeWindow
-
-Expected graph / pseudo
-INPUT: now, date=today
-FIND MealService ms
-WHERE ms.date = date
-AND ms.timeWindow contains now
-RETURN ms.venue, ms.mealType, ms.descriptionSummary
-
----
-
-3. 아침 먹을 수 있는 곳 중에 가장 저렴한 옵션은 뭐야?
-
----
-
-난이도: 중간(가격 파싱/정규화)
-의미: 메뉴 텍스트에서 price 추출 → 최소값 비교
-
-Expected graph / pseudo
-INPUT: date=today, mealType=Breakfast
-FIND MenuItem mi
-WHERE mi.mealService.date = date
-AND mi.mealService.mealType = mealType
-AND mi.price exists
-ORDER BY mi.price ASC
-RETURN top mi, mi.mealService.venue
+    # 4. 거리 정렬 (SPARQL 확장 함수 가정)
+    BIND( ( (?tLat - ?vLat)* (?tLat - ?vLat) + (?tLng - ?vLng)* (?tLng - ?vLng) ) AS ?distSq )
+    FILTER (?distSq < 0.0001) # 약 1km 반경 (좌표계에 따라 다름)
+    ORDER BY ?distSq
+    ```
 
 ---
 
-4. 예산 6,000원 이하로 점심 가능한 곳 추천해줘
+### 5. 서비스 메타데이터 (Service Meta-attributes)
+**"바쁜데 빨리 받아서 갈 수 있는(테이크아웃) 점심 메뉴 추천해줘."**
+
+음식 자체가 아니라, 식사의 '형태'나 '서비스 방식'에 대한 질문입니다. 메뉴나 서비스에 태그(Tag) 형태의 속성이 필요함을 시사합니다.
+
+*   **Logical Path:**
+    `Attribute(Takeout/Quick)` ➜ `hasTag` ➜ `MenuItem` (OR `MealService`) ➜ `providedAt` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?menu :consumptionMode "Takeout" .
+    ?menu :partOfService ?service .
+    ?service :mealType "Lunch" .
+    ```
 
 ---
 
-난이도: 중간(가격 파싱)
-의미: 사용자 조건(budget)과 메뉴 가격을 연결
+### 6. 복합 추론 (Complex Reasoning)
+**"오늘 매콤한 한식 땡기는데, 학생회관 근처에 그런 메뉴 있어?"**
 
-Expected graph / pseudo
-INPUT: date=today, mealType=Lunch, budget<=6000
-FIND (Venue v, MenuItem mi)
-WHERE mi.mealService.date = date
-AND mi.mealService.mealType = mealType
-AND mi.price <= budget
-RETURN groupBy v: list(mi)
+다양한 조건(맛 + 스타일 + 위치)이 복합적으로 작용하는 질문입니다. 속성 간의 교집합(AND 조건)을 처리할 수 있어야 합니다.
 
----
-
-5. 뷔페 있는 식당만 골라줘
-
----
-
-난이도: 중간(서비스 유형 태깅)
-의미: 텍스트(<뷔페>, 세미뷔페 등) → serviceStyle로 승격
-
-Expected graph / pseudo
-FIND MealService ms
-WHERE ms.serviceStyle IN {Buffet, SemiBuffet}
-RETURN ms.venue, ms.date, ms.mealType, ms.priceRange
+*   **Logical Path:**
+    `Venue(near 학생회관)` AND `MenuItem(Flavor=Spicy)` AND `MenuItem(Cuisine=Korean)`
+*   **Graph Pattern:**
+    ```sparql
+    ?venue :name "학생회관" .
+    ?venue :offers ?service .
+    ?service :hasMenu ?menu .
+    ?menu :isSpicy true ;
+          :cuisineType "Korean" .
+    ```
 
 ---
 
-6. 테이크아웃 되는 메뉴가 있는 곳 있어?
+### 7. 식이 제한 (Dietary Restriction)
+**"오늘 고기 없는 식단(채식) 있어?"**
+
+특정 재료(고기)의 포함 여부를 속성(`containsMeat`)으로 확인하여, 식이 요법을 지키는 사용자를 위한 필터링을 수행합니다.
+
+*   **Logical Path:**
+    `Attribute(NoMeat)` ➜ `containsMeat = false` ➜ `MenuItem` ➜ `partOfService` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?menu :containsMeat false .
+    ?menu :partOfService ?service .
+    ?service :date "TODAY"^^xsd:date .
+    ?service :providedAt ?venue .
+    ```
 
 ---
 
-난이도: 중간(테이크아웃 태깅)
-의미: 텍스트(TAKE-OUT 등) → consumptionMode 태깅
+### 8. 운영 시간 (Operating Time)
+**"오늘 저녁 6시 30분 이후에도 밥 먹을 수 있는 곳 있어?"**
 
-Expected graph / pseudo
-FIND MenuItem mi
-WHERE mi.consumptionMode = Takeout
-RETURN mi.mealService.venue, mi.mealService.date, mi.mealService.mealType, mi.name, mi.price
+서비스의 종료 시간(`timeEnd`)을 수치적으로 비교하여, 특정 시점 이후에 이용 가능한 식당을 찾습니다.
 
----
-
-7. 혼잡 시간 피해서 갈 수 있는 점심 후보 알려줘
-
----
-
-난이도: 중간(혼잡시간 파싱)
-의미: crowdWindow를 별도 속성으로 분리하고 회피 조건 적용
-
-Expected graph / pseudo
-INPUT: desiredArrivalTime t, date=today, mealType=Lunch
-FIND MealService ms
-WHERE ms.date = date
-AND ms.mealType = mealType
-AND ms.timeWindow contains t
-AND NOT (ms.crowdWindow contains t)
-RETURN ms.venue, ms.timeWindow, ms.crowdWindow
+*   **Logical Path:**
+    `Time(18:30)` ➜ `Filter(timeEnd >= 18:30)` ➜ `MealService(Dinner)` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?service :mealType "Dinner" ;
+             :timeEnd ?end .
+    FILTER (?end >= "18:30:00"^^xsd:time)
+    ?service :providedAt ?venue .
+    ```
 
 ---
 
-8. 가장 가까운 식당에서 점심 뭐 먹지?
+### 9. 선호/회피 필터링 (Preference Filtering)
+**"나 매운 거 못 먹는데, 안 매운 걸로 추천해줘."**
+
+`isSpicy` 속성을 활용하여 특정 맛(매운맛)을 제외(Negative Filter)하는 로직입니다.
+
+*   **Logical Path:**
+    `Preference(Not Spicy)` ➜ `isSpicy = false` ➜ `MenuItem` ➜ `partOfService` ➜ `Venue`
+*   **Graph Pattern:**
+    ```sparql
+    ?menu :isSpicy false .
+    ?menu :partOfService ?service .
+    ?service :providedAt ?venue .
+    ```
 
 ---
 
-난이도: 중간~상(거리 계산)
-의미: venue geo + 기준점(userLocation or campus_center) → nearest 계산
+### 10. 최저가 검색 (Global Extremum)
+**"오늘 나온 메뉴 중에 제일 싼 게 뭐야?"**
 
-Expected graph / pseudo
-INPUT: origin (lat,lng), date=today, mealType=Lunch
-FIND Venue v
-WHERE exists MealService ms:
-ms.venue=v AND ms.date=date AND ms.mealType=mealType
-ORDER BY distance(origin, v.geo) ASC
-RETURN topK: (v, ms.menuSummary, distance)
+전체 데이터셋(오늘 기준)에서 가격(`price`)을 기준으로 정렬하고 상위 1개(Limit 1)를 추출합니다.
 
----
-
-9. 오늘 매운 메뉴 위주로 추천해줘
-
----
-
-난이도: 쉬움 (LLM 태깅 활용)
-의미: `isSpicy` 속성을 통해 확실하게 매운 음식 필터링
-
-Expected graph / pseudo
-INPUT: preference=Spicy, date=today, mealType=Lunch
-FIND MenuItem mi
-WHERE mi.mealService.date=date
-AND mi.mealService.mealType=mealType
-AND mi.isSpicy = true
-RETURN mi.name, mi.price, mi.cuisineType
-
----
-
-10. 면 요리 위주로 가능한 옵션 모아줘
-
----
-
-난이도: 쉬움 (LLM 태깅 활용)
-의미: `carbType` 속성을 통해 면 요리(Noodle) 정확히 필터링
-
-Expected graph / pseudo
-INPUT: carbType=Noodle, date=today, mealType=Lunch
-FIND MenuItem mi
-WHERE mi.mealService.date=date
-AND mi.mealService.mealType=mealType
-AND mi.carbType = 'Noodle'
-RETURN groupBy mi.mealService.venue
-
----
-
-11. ‘자하연’ 근처에서 점심 + ‘정문 근처’에서 저녁, 동선 좋게 짜줘
-
----
-
-난이도: 상(구역/건물 기반 제약 충족)
-의미: 장소를 area/building로 묶고, 끼니 간 시간/이동 제약을 만족하는 조합 찾기
-
-Expected graph / pseudo
-INPUT:
-lunchArea = "자하연", dinnerArea="정문 근처"
-date=today
-FIND lunchOption (v1, ms1), dinnerOption (v2, ms2)
-WHERE ms1.date=date AND ms1.mealType=Lunch AND v1.area=lunchArea
-AND ms2.date=date AND ms2.mealType=Dinner AND v2.area=dinnerArea
-AND timeFeasible(ms1.timeWindow, ms2.timeWindow)
-RETURN bestPairs by (distanceWithinArea, price, crowdAvoidanceOptional)
-
----
-
-12. 이번 3일 점심을 ‘중복 없이’ 돌려먹고 싶어. 하루 7,000원 이하로 플랜 짜줘
-
----
-
-난이도: 상(기간 + 제약 + 최적화)
-의미: 날짜별 후보 세트 → 중복회피 제약(식당 or 카테고리) → 계획 생성
-
-Expected graph / pseudo
-INPUT: dateRange, mealType=Lunch, dailyBudget<=7000, noRepeat={venue OR menuCategory}
-FOR each date d in dateRange:
-candidateItems[d] = {mi | mi.mealService.date=d AND mi.price<=budget}
-
-SOLVE assignment:
-choose one mi per d
-subject to:
-notRepeated( mi.venue ) OR notRepeated( mi.category )
-optimize:
-minimize totalCost
-maximize varietyScore(categories, cuisines)
-minimize crowdPenalty(ms.crowdWindow)
-
-RETURN plan by day: (venue, menuItem, timeWindow, price)
-
----
-
-13. 채식(고기 없는) 메뉴 있어?
-
----
-
-난이도: 쉬움 (LLM 태깅 활용)
-의미: `containsMeat` 속성이 false인 메뉴 탐색
-
-Expected graph / pseudo
-INPUT: date=today
-FIND MenuItem mi
-WHERE mi.mealService.date=date
-AND mi.containsMeat = false
-RETURN mi.venue, mi.name, mi.cuisineType
-
----
-
-14. 오늘 점심으로 일식 먹고 싶어
-
----
-
-난이도: 쉬움 (LLM 태깅 활용)
-의미: `cuisineType` 속성을 활용하여 특정 요리 스타일 필터링
-
-Expected graph / pseudo
-INPUT: cuisine='Japanese', date=today, mealType=Lunch
-FIND MenuItem mi
-WHERE mi.mealService.date=date
-AND mi.mealService.mealType=mealType
-AND mi.cuisineType = 'Japanese'
-RETURN mi.venue, mi.name, mi.price
-
----
-
-15. 매콤한 한식 추천해줘 (복합 질의)
-
----
-
-난이도: 쉬움 (LLM 태깅 활용)
-의미: `cuisineType`과 `isSpicy` 속성을 결합한 다중 조건 검색
-
-Expected graph / pseudo
-INPUT: cuisine='Korean', spicy=true, date=today
-FIND MenuItem mi
-WHERE mi.mealService.date=date
-AND mi.cuisineType = 'Korean'
-AND mi.isSpicy = true
-RETURN mi.venue, mi.name, mi.price
-
----
-
-16. 오늘 점심으로 빨리 먹을 수 있는 근처 일식 메뉴 추천해줘
-
----
-
-난이도: 상 (복합 조건: 일식 + 거리 + 시간/형태)
-의미: 일식(Japanese)이면서, '빨리'(테이크아웃 or 혼잡회피) 먹을 수 있고, '근처'(거리순)에 있는 곳.
-
-Expected graph pattern (SPARQL-like)
-```sparql
-SELECT ?venue ?menuName ?distance
-WHERE {
-  # 1. Basic Context (Lunch, Today)
-  ?service a :MealService ;
-           :date "TODAY"^^xsd:date ;
-           :mealType "Lunch" ;
-           :providedAt ?venue .
-
-  # 2. Content Matching (Japanese Cuisine)
-  ?service :hasMenu ?menu .
-  ?menu :cuisineType "Japanese" ;
-        :menuName ?menuName .
-
-  # 3. "Quick" Semantics (Takeout availability OR Avoiding crowds)
-  OPTIONAL { ?menu :consumptionMode ?mode }
-  OPTIONAL { ?service :crowdTimeRange ?crowd }
-  FILTER ( ?mode = "Takeout" || !contains(?crowd, "NOW") )
-
-  # 4. "Nearby" Semantics (Geospatial Distance)
-  ?venue :geoLat ?lat ; :geoLng ?lng .
-  BIND (distance(?lat, ?lng, USER_LAT, USER_LNG) AS ?distance)
-}
-ORDER BY ?distance
-```
-
----
-
-## Derived Data 규칙(외부 데이터 없이 가능한 범위)
-
-A) Price extraction
-
-* 패턴 예: ": 6,000원", "6,500원", "1,000원"
-* 결과: MenuItem.price (int)
-
-B) TimeWindow / CrowdWindow parsing
-
-* 패턴 예: "11:00~14:00", "11:30~12:30", "17:00"
-* 결과: MealService.timeWindow, MealService.crowdWindow
-
-C) ServiceStyle tagging
-
-* 키워드 예: "<뷔페>", "세미뷔페"
-* 결과: MealService.serviceStyle
-
-D) ConsumptionMode tagging
-
-* 키워드 예: "TAKE-OUT", "Take-Out", "포장"
-* 결과: MenuItem.consumptionMode = Takeout
-
-E) LLM-based Classification (Gemini 2.0 Flash)
-
-* 입력: 메뉴명 (예: "등심돈까스", "순두부찌개")
-* 출력:
-    * `cuisineType`: Korean, Western, Chinese, Japanese, Other
-    * `containsMeat`: Boolean (육류 주재료 여부)
-    * `carbType`: Rice, Noodle, Bread, None
-    * `isSpicy`: Boolean (매운맛 여부)
-* 장점: 단순 키워드 매칭보다 문맥/상식 기반의 정확한 분류 가능
-
----
+*   **Logical Path:**
+    `MenuItem(All)` ➜ `SortBy(price ASC)` ➜ `Limit(1)`
+*   **Graph Pattern:**
+    ```sparql
+    ?menu :price ?price ;
+          :menuName ?name .
+    ?menu :partOfService ?service .
+    ?service :date "TODAY"^^xsd:date .
+    ORDER BY ASC(?price)
+    LIMIT 1
+    ```

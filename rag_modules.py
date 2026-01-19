@@ -137,6 +137,8 @@ def generate_sparql(question, schema_info):
     - Use only the classes and properties defined in the schema if possible.
     - For names (venues, menus), ALWAYS query the `:name` or `:menuName` property and filter it. Do NOT filter the Subject URI.
     - Example: `SELECT ?v WHERE {{ ?v a :Venue ; :name ?n . FILTER(CONTAINS(?n, "301")) }}`
+    - For location/building queries, use the `:building` property.
+    - Example: "301동 식당" -> `?venue :building ?b . FILTER(CONTAINS(?b, "301"))`
     - CRITICAL: The path from Venue to Menu is: `?venue :offers ?service . ?service :hasMenu ?menuItem`. Use this path.
     - If the user asks about a general concept (e.g., "Engineering Zone"), rely on 'partOf' relationships or specific building names if you can infer them.
     """
