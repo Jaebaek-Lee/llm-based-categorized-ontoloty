@@ -293,6 +293,42 @@ RETURN mi.venue, mi.name, mi.price
 
 ---
 
+16. 오늘 점심으로 빨리 먹을 수 있는 근처 일식 메뉴 추천해줘
+
+---
+
+난이도: 상 (복합 조건: 일식 + 거리 + 시간/형태)
+의미: 일식(Japanese)이면서, '빨리'(테이크아웃 or 혼잡회피) 먹을 수 있고, '근처'(거리순)에 있는 곳.
+
+Expected graph pattern (SPARQL-like)
+```sparql
+SELECT ?venue ?menuName ?distance
+WHERE {
+  # 1. Basic Context (Lunch, Today)
+  ?service a :MealService ;
+           :date "TODAY"^^xsd:date ;
+           :mealType "Lunch" ;
+           :providedAt ?venue .
+
+  # 2. Content Matching (Japanese Cuisine)
+  ?service :hasMenu ?menu .
+  ?menu :cuisineType "Japanese" ;
+        :menuName ?menuName .
+
+  # 3. "Quick" Semantics (Takeout availability OR Avoiding crowds)
+  OPTIONAL { ?menu :consumptionMode ?mode }
+  OPTIONAL { ?service :crowdTimeRange ?crowd }
+  FILTER ( ?mode = "Takeout" || !contains(?crowd, "NOW") )
+
+  # 4. "Nearby" Semantics (Geospatial Distance)
+  ?venue :geoLat ?lat ; :geoLng ?lng .
+  BIND (distance(?lat, ?lng, USER_LAT, USER_LNG) AS ?distance)
+}
+ORDER BY ?distance
+```
+
+---
+
 ## Derived Data 규칙(외부 데이터 없이 가능한 범위)
 
 A) Price extraction
