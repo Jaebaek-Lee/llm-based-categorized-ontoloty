@@ -12,7 +12,8 @@ try:
     from config import TBOX_PATH, ABOX_INFERRED_PATH, MODEL_NAME, PROJECT_ROOT
 except ImportError:
     # Fallback if running directly or path issues, try to add root
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+    # Current file: app/services/rag_pipeline.py -> Project Root: ../..
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
     from config import TBOX_PATH, ABOX_INFERRED_PATH, MODEL_NAME, PROJECT_ROOT
 
 ENV_PATH = os.path.join(PROJECT_ROOT, ".env")

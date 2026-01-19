@@ -4,7 +4,8 @@ import sys
 import os
 
 # Add project root to sys.path to ensure imports work
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+# Current file: app/main.py -> Project Root: ..
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
 import time
