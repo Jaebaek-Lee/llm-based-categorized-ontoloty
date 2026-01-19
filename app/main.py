@@ -1,6 +1,14 @@
 import streamlit as st
 import time
-from rag_modules import load_graph, extract_schema_info, generate_sparql, execute_sparql, generate_answer, generate_explanation
+import sys
+import os
+
+# Add project root to sys.path to ensure imports work
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+import streamlit as st
+import time
+from app.services.rag_pipeline import load_graph, extract_schema_info, generate_sparql, execute_sparql, generate_answer, generate_explanation
 
 # Page Config
 st.set_page_config(page_title="SNU Dining Graph RAG", layout="wide")

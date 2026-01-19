@@ -6,8 +6,16 @@ import rdflib
 from rdflib import RDF, RDFS, OWL
 
 # Configuration
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(BASE_DIR, ".env")
+import sys
+# Ensure we can import config relative to project root if running as module
+try:
+    from config import TBOX_PATH, ABOX_INFERRED_PATH, MODEL_NAME, PROJECT_ROOT
+except ImportError:
+    # Fallback if running directly or path issues, try to add root
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+    from config import TBOX_PATH, ABOX_INFERRED_PATH, MODEL_NAME, PROJECT_ROOT
+
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 
 # Load .env manually to avoid external dependencies like python-dotenv
 if os.path.exists(ENV_PATH):
@@ -19,7 +27,7 @@ if os.path.exists(ENV_PATH):
                 os.environ[key.strip()] = value.strip()
 
 API_KEY = os.environ.get("GOOGLE_API_KEY")
-MODEL_NAME = "gemini-3-pro-preview" # Updated to available 3-pro-preview model
+# MODEL_NAME is imported from config
 
 if API_KEY:
     genai.configure(api_key=API_KEY)
@@ -28,30 +36,24 @@ if API_KEY:
 def load_graph():
     """
     Loads TBox and ABox into an rdflib Graph.
-    Expected paths:
-      - ontology/tbox.ttl
-      - abox_inferred.ttl
+    Expected paths are defined in config.py
     """
     g = rdflib.Graph()
     
-    # Define absolute paths based on the project root
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    tbox_path = os.path.join(base_dir, "ontology/tbox.ttl")
-    abox_path = os.path.join(base_dir, "abox_inferred.ttl")
-
     try:
-        g.parse(tbox_path, format="turtle")
-        print(f"Loaded TBox from {tbox_path}: {len(g)} triples so far")
+        g.parse(str(TBOX_PATH), format="turtle")
+        print(f"Loaded TBox from {TBOX_PATH}: {len(g)} triples so far")
     except Exception as e:
         print(f"Error loading TBox: {e}")
 
     try:
-        g.parse(abox_path, format="turtle")
-        print(f"Loaded ABox from {abox_path}. Total triples: {len(g)}")
+        g.parse(str(ABOX_INFERRED_PATH), format="turtle")
+        print(f"Loaded ABox from {ABOX_INFERRED_PATH}. Total triples: {len(g)}")
     except Exception as e:
         print(f"Error loading ABox: {e}")
     
     return g
+
 
 def extract_schema_info(graph):
     """

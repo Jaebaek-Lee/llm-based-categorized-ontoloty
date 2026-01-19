@@ -1,10 +1,10 @@
 import sys
 import os
 
-# Add parent directory to path to import rag_modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from rag_modules import load_graph, extract_schema_info, generate_sparql, execute_sparql, generate_answer
+from app.services.rag_pipeline import load_graph, extract_schema_info, generate_sparql, execute_sparql, generate_answer
 
 def run_verification():
     print("Loading Graph...")
